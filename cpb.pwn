@@ -18,8 +18,23 @@
    						 | |__| | | |   | |_| |  __| | | | | |
    						 |______| |_|    \__,_| |____| |_| |_|
    *-----------------------------------------------------------------------------------*
-									   ATENÃ‡ÃƒO
-					Ao usar esse gamemode, favor manter os crÃ©ditos.
+									   ATENÇÃO
+					Ao usar esse gamemode, favor manter os créditos.
+*/
+
+/* 
+
+	Correções para SAMP 0.3.7 (2019) por RenanMsV
+
+	-- Arrumado 'Function or file is not found' : Necessário instalar plugin Whirlpool https://github.com/Southclaws/samp-whirlpool
+	-- Alterado conexao mysql de define para arquivo mysql.ini. Não é preciso re-compilar para alterar valores da conexao.
+	-- Arrumado 'missing old mysql natives'
+	-- Arrumado 'mysql error field IP not found'
+	-- Arrumado objetos sendo recriados a cada novo jogador conectando.
+	-- Arrumado /trabalhar não funcionando em alguns caminhões
+	-- Removido veiculo Hydra que fica spawnado no spawn.
+	-- Adicionado comando admin /darpontos
+
 */
 #include <a_samp>
 #include <zcmd>
@@ -27,19 +42,13 @@
 #include <a_mysql>
 #include <streamer>
 
-#define Host_MySQL "localhost"
-#define Usuario_MySQL "root"
-#define Database_MySQL ""
-#define Senha_MySQL ""
-
 enum
 {
 	DialogoLogin,
 	DialogoRegistro
 };
 
-new
-	mysql;
+new MySQL:mysql;
 
 native WP_Hash(buffer[], len, const str[]);
 
@@ -50,7 +59,6 @@ enum pInfo
     pSenha,
     pAdmin,
     pDinheiro,
-    pIP,
     pClasse,
     pPontos,
     bool:pLogado,
@@ -86,9 +94,9 @@ new LocalCargaDescarga[][Local_CargaDescarga] =
 	// Local, FloatX, FloatY, FloatZ
 	{"Dummy location", 0.0, 0.0, 0.0},
 	{"Loja de Bebidas de Los Santos", 2337.0, -1371.1, 24.0}, // Local 1
-	{"Rodriguez Ferro e AÃ§o", 2443.4, -1426.1, 24.0}, // Local 2
+	{"Rodriguez Ferro e Aço", 2443.4, -1426.1, 24.0}, // Local 2
 	{"Lava Jato de Los Santos", 2511.4, -1468.6, 24.0}, // Local 3
-	{"EstÃ¡dio de Los Santos", 2802.0, -1818.2, 9.9} // Local 4
+	{"Estádio de Los Santos", 2802.0, -1818.2, 9.9} // Local 4
 };
 
 enum TCarga
@@ -102,13 +110,13 @@ enum TCarga
 
 new ACarga[][TCarga] =
 {
-	// Nome da Carga, PreÃ§o por metro, VeÃ­culo que precisa, Local que pega, Local que entrega
+	// Nome da Carga, Preço por metro, Veículo que precisa, Local que pega, Local que entrega
 	{"Dummy", 0.00, 0, {0}, {0}},
 
-	// Cargas de Trailer com MinÃ©rio
+	// Cargas de Trailer com Minério
 	{"Cascalho", 1.00, CaminhaoMinerio, {1}, {2, 3}}, // CargaID 1
 
-	// Cargas de Trailer de FlÃºidos
+	// Cargas de Trailer de Flúidos
 	{"Leite", 1.00, CaminhaoFluido, {1}, {2, 3}}, // CargaID 2
 
 	// Cargas de Trailer Fechado
@@ -156,9 +164,19 @@ stock Product_GetList(PCV_Needed, &NumProducts)
 #define TrailerFechado2 591
 #define TrailerMinerio 450
 
+// === Caminhoes de Trailer
 #define VeiculoRoadTrain 515
 #define VeiculoLineRunner 403
 #define VeiculoTanker 514
+
+// === Caminhoes sem Trailer
+#define VeiculoRumpo 440
+#define VeiculoBurrito 482
+#define VeiculoMule 414
+#define VeiculoYankee 456
+#define VeiculoBoxVille 498
+#define VeiculoBenson 499
+
 
 #define DialogoCaminhaoCarga 997
 #define DialogoCaminhaoCarregamento 998
@@ -171,14 +189,14 @@ stock Product_GetList(PCV_Needed, &NumProducts)
 forward Mensagens();
 
 new mensagens[8][128] = {
-"[Dica] Evite ficar de ESC por muito tempo enquanto estiver com trailer, vocÃª pode perdÃª-lo!",
-"[Aviso] Leia sempre as /regras. Elas podem ser atualizadas Ã  qualquer momento!",
-"[Dica] Dirija sempre pelo lado direito da rua/estrada. VocÃª pode ser punido caso desrespeite!",
-"[Aviso] NÃ£o bata no veÃ­culo de outro player de propÃ³sito, vocÃª serÃ¡ punido!",
-"[Aviso] Viu alguÃ©m fazendo alguma coisa errada? Use /reportar.",
-"[Dica] Viu alguÃ©m fazendo alguma coisa errada e nÃ£o tem admin on? Denuncie no fÃ³rum!",
+"[Dica] Evite ficar de ESC por muito tempo enquanto estiver com trailer, você pode perdê-lo!",
+"[Aviso] Leia sempre as /regras. Elas podem ser atualizadas à qualquer momento!",
+"[Dica] Dirija sempre pelo lado direito da rua/estrada. Você pode ser punido caso desrespeite!",
+"[Aviso] Não bata no veículo de outro player de propósito, você será punido!",
+"[Aviso] Viu alguém fazendo alguma coisa errada? Use /reportar.",
+"[Dica] Viu alguém fazendo alguma coisa errada e não tem admin on? Denuncie no fórum!",
 "[Dica] Digite /admins para ver os administradores online.",
-"[Aviso] NÃ£o desrespeite as /regras do servidor, vocÃª serÃ¡ punido!"
+"[Aviso] Não desrespeite as /regras do servidor, você será punido!"
 };
 
 new Text: LogoC;
@@ -211,9 +229,9 @@ main()
 {
 	print("\n--------------------------------------------------------");
 	print("                 Carga Pesada Brasil\n");
-	print("            VersÃ£o inicial por: Galhardo.");
+	print("            Versão inicial por: Galhardo.");
 	print("            Todos os direitos reservados.");
-	print("     Ao utilizar o gamemode favor manter os crÃ©ditos.");
+	print("     Ao utilizar o gamemode favor manter os créditos.");
 	print("--------------------------------------------------------\n");
 }
 
@@ -260,20 +278,20 @@ new SpawnCaminhao75maispontos[][LocalSpawn] =
 static const Pontos[][128] = {
 {"  "},
 {"  "},
-{"{FF0000}Pontos para veÃ­culos{00BFFF}"},
-{"Pontos = VeÃ­culos"},
-{"0 atÃ© 24 = Mule, Benson, Boxville e Rumpo."},
-{"25 atÃ© 49 = Linerunner e Burrito."},
-{"50 atÃ© 74 = Tanker e Yankee."},
+{"{FF0000}Pontos para veículos{00BFFF}"},
+{"Pontos = Veículos"},
+{"0 até 24 = Mule, Benson, Boxville e Rumpo."},
+{"25 até 49 = Linerunner e Burrito."},
+{"50 até 74 = Tanker e Yankee."},
 {"75+ = Roadtrain."},
 {"  "},
 {"{FF0000}Pontos para classe{00BFFF}"},
 {"Classe = Pontos"},
 {"Caminhoneiro = 0+ pontos."},
-{"PolÃ­cia = 25+ pontos."},
-{"Motorista de Ã”nibus = 15+ pontos"},
-{"MÃ¡fia = 50+ pontos  "},
-{"MecÃ¢nico = 10+ pontos"}
+{"Polícia = 25+ pontos."},
+{"Motorista de Ônibus = 15+ pontos"},
+{"Máfia = 50+ pontos  "},
+{"Mecânico = 10+ pontos"}
 };
 
 static const TabelaCmds[][128] = {
@@ -281,41 +299,41 @@ static const TabelaCmds[][128] = {
 {"{FF0000}/reportar{FFFF00} = Reportar algum player infrator"},
 {"{FF0000}/t{FFFF00} = Desatracar o trailer"},
 {"{FF0000}/admins{FFFF00} = Ver os administradores online e seus cargos"},
-{"{FF0000}/pontos{FFFF00} = Ver a tabela de pontos para os caminhÃµes"},
-{"{FF0000}/girar{FFFF00} = Girar um caminhÃ£o tombado"},
+{"{FF0000}/pontos{FFFF00} = Ver a tabela de pontos para os caminhões"},
+{"{FF0000}/girar{FFFF00} = Girar um caminhão tombado"},
 {"{FF0000}/kill{FFFF00} = Se matar"},
 {"{FF0000}/mudar{FFFF00} = Mudar a sua classe ou skin"},
-{"{FF0000}/trabalhar{FFFF00} = ComeÃ§ar um trabalho"}
+{"{FF0000}/trabalhar{FFFF00} = Começar um trabalho"}
 };
 
 static const AdminCmds[][128] = {
 {" "},
-{"{FF0000}/spec{FFFF00} = Espiar algum player reportado ou nÃ£o"},
-{"{FF0000}/an{FFFF00} = Fazer anÃºncios (mensagem de cor rosa, para destacar)"},
+{"{FF0000}/spec{FFFF00} = Espiar algum player reportado ou não"},
+{"{FF0000}/an{FFFF00} = Fazer anúncios (mensagem de cor rosa, para destacar)"},
 {"{FF0000}/kick{FFFF00} = Kickar um player infrator"},
 {"{FF0000}/ban{FFFF00} = Banir um player infrator"},
-{"{FF0000}/girar{FFFF00} = Girar um caminhÃ£o tombado"},
+{"{FF0000}/girar{FFFF00} = Girar um caminhão tombado"},
 {"{FF0000}/kill{FFFF00} = Se matar"},
 {"{FF0000}/mudar{FFFF00} = Mudar a sua classe ou skin"},
-{"{FF0000}/trabalhar{FFFF00} = ComeÃ§ar um trabalho"},
+{"{FF0000}/trabalhar{FFFF00} = Começar um trabalho"},
 {"{FF0000}/spawncarro{FFFF00} = Spawnar um carro (precisa estar dentro)"},
 {"{FF0000}/ip{FFFF00} = Ver o IP de um player"}
 };
 
 static const RegrasAdmin[][180] = {
 {" "},
-{"{FF0000}Respeite TODAS essas regras ou poderÃ¡ levar aviso, ser rebaixado, expulso ou levar BAN!"},
+{"{FF0000}Respeite TODAS essas regras ou poderá levar aviso, ser rebaixado, expulso ou levar BAN!"},
 {" "},
-{"{FFFFFF}- NÃ£o desrespeite nenhum player, principalmente, nenhum administrador. ({AFAFAF}AVISO{FFFFFF})"},
-{"{FFFFFF}- VocÃª tem seu tempo para jogar, mais tambÃ©m nÃ£o foque somente em jogar, lembre-se que vocÃª tambÃ©m Ã© ADMINISTRADOR! ({AFAFAF}AVISO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o abuse dos comandos (/kick, /ban, /an). ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃƒO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o abuse da autoridade, vocÃª Ã© administrador, nÃ£o o dono do mundo! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃƒO{FFFFFF})"},
-{"{FFFFFF}- Somente punir com provas. Se tiver com dÃºvida na hora de punir, converse com outro administrador. ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o ter contas fakes. ({AFAFAF}AVISO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o misturar amizade com administraÃ§Ã£o. Se um amigo seu fazer algo de errado, puna-o! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o ficar utilizando o comando /an toda hora, somente para fazer anÃºncios importantes! ({AFAFAF}AVISO{FFFFFF})"},
-{"{FFFFFF}- NÃ£o discuta no chat. ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃƒO{FFFFFF})"},
-{"{FFFFFF}- Ao ver algum outro administrador abusando de comandos dÃª F8 e repasse para um Fundador! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃƒO{FFFFFF})"}
+{"{FFFFFF}- Não desrespeite nenhum player, principalmente, nenhum administrador. ({AFAFAF}AVISO{FFFFFF})"},
+{"{FFFFFF}- Você tem seu tempo para jogar, mais também não foque somente em jogar, lembre-se que você também é ADMINISTRADOR! ({AFAFAF}AVISO{FFFFFF})"},
+{"{FFFFFF}- Não abuse dos comandos (/kick, /ban, /an). ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃO{FFFFFF})"},
+{"{FFFFFF}- Não abuse da autoridade, você é administrador, não o dono do mundo! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃO{FFFFFF})"},
+{"{FFFFFF}- Somente punir com provas. Se tiver com dúvida na hora de punir, converse com outro administrador. ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF})"},
+{"{FFFFFF}- Não ter contas fakes. ({AFAFAF}AVISO{FFFFFF})"},
+{"{FFFFFF}- Não misturar amizade com administração. Se um amigo seu fazer algo de errado, puna-o! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF})"},
+{"{FFFFFF}- Não ficar utilizando o comando /an toda hora, somente para fazer anúncios importantes! ({AFAFAF}AVISO{FFFFFF})"},
+{"{FFFFFF}- Não discuta no chat. ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃO{FFFFFF})"},
+{"{FFFFFF}- Ao ver algum outro administrador abusando de comandos dê F8 e repasse para um Fundador! ({AFAFAF}AVISO{FFFFFF}/{AFAFAF}REBAIXAMENTO{FFFFFF}/{AFAFAF}EXPULSÃO{FFFFFF})"}
 };
 
 static const Bemvindo[16][128] = {
@@ -323,31 +341,31 @@ static const Bemvindo[16][128] = {
 {""},
 {"O Carga Pesada Brasil teve seu gamemode feito do 0 por {FFFF00}Galhardo{FFFFFF}."},
 {""},
-{"Como Ã© a primeira vez que vocÃª loga no servidor, Ã© bom saber algumas coisas que sÃ£o importante para um iniciante."},
+{"Como é a primeira vez que você loga no servidor, é bom saber algumas coisas que são importante para um iniciante."},
 {""},
-{"{FFFF00}Primeiro{FFFFFF}: {FF0000}NUNCA REVELE SUA SENHA PARA NINGUÃ‰M{FFFFFF}."},
-{"NÃ£o nos responsabilizamos por contas hackeadas!"},
+{"{FFFF00}Primeiro{FFFFFF}: {FF0000}NUNCA REVELE SUA SENHA PARA NINGUÉM{FFFFFF}."},
+{"Não nos responsabilizamos por contas hackeadas!"},
 {""},
-{"{FFFF00}Segundo{FFFFFF}: Aqui no Carga Pesada Brasil nÃ³s temos um sistema que restringe certos caminhÃµes Ã  uma certa pontuaÃ§Ã£o,"},
-{"ou seja, vocÃª Ã© iniciante (0 pontos) e terÃ¡ que utilizar somente caminhÃµes pequenos, atÃ© adquirir mais experiÃªncia e pontos"},
-{"para ir subindo o nÃ­vel dos caminhÃµes, atÃ© chegar no melhor caminhÃ£o do jogo, o RoadTrain, com 75 pontos."},
-{"Qualquer dÃºvida sobre a restriÃ§Ã£o de pontos para caminhÃµes digite /pontos."},
+{"{FFFF00}Segundo{FFFFFF}: Aqui no Carga Pesada Brasil nós temos um sistema que restringe certos caminhões à uma certa pontuação,"},
+{"ou seja, você é iniciante (0 pontos) e terá que utilizar somente caminhões pequenos, até adquirir mais experiência e pontos"},
+{"para ir subindo o nível dos caminhões, até chegar no melhor caminhão do jogo, o RoadTrain, com 75 pontos."},
+{"Qualquer dúvida sobre a restrição de pontos para caminhões digite /pontos."},
 {""},
 {"Tenha um bom jogo!"},
-{"Equipe {66FF00FF}CPB."}
+{"Equipe {66FF00}CPB."}
 };
 
 public OnGameModeInit()
 {
-    mysql_log(LOG_ALL);
-    mysql = mysql_connect(Host_MySQL, Usuario_MySQL, Database_MySQL, Senha_MySQL);
+    mysql_log(ERROR);
+    mysql = mysql_connect_file();
     if(mysql_errno() != 0)
     {
-        printf("[MySQL] ConexÃ£o com banco de dados MySQL FALHOU.");
+        printf("[MySQL] Conexão com banco de dados MySQL FALHOU.");
     }
     else
     {
-        printf("[MySQL] ConexÃ£o com banco de dados MySQL foi autenticada.");
+        printf("[MySQL] Conexão com banco de dados MySQL foi autenticada.");
     }
 	SetGameModeText("Carga Pesada v1.0");
 	SendRconCommand("mapname CPB (c)");
@@ -369,7 +387,7 @@ public OnGameModeInit()
 	CreateObject(6300,1878.6000000,-1428.0000000,586.0000000,180.0000000,0.0000000,0.0000000); //object(pier04_law2) (1)
 	CreateObject(3029,1887.0000000,-1430.9600000,569.5999800,0.0000000,0.0000000,90.0000000);
 	/*AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA*/
-	CreateVehicle(520,2812.8999023,910.7999878,11.6999998,0.0000000,-1,-1,-1);
+	//CreateVehicle(520,2812.8999023,910.7999878,11.6999998,0.0000000,-1,-1,-1); // hydra
 	CreateVehicle(596,1538.8000488,-1644.6999512,5.6999998,180.0000000,79,1,-1);
 	CreateVehicle(596,1534.5999756,-1644.6999512,5.6999998,180.0000000,79,1,-1);
 	CreateVehicle(596,1530.5000000,-1644.6999512,5.6999998,180.0000000,79,1,-1);
@@ -644,198 +662,15 @@ public OnGameModeInit()
 	CreateVehicle(490,1566.5000000,-1711.0999756,6.1999998,0.0000000,79,1,-1); //FBI Rancher
 	CreateVehicle(490,1563.1999512,-1711.0999756,6.1999998,0.0000000,79,1,-1); //FBI Rancher
 	CreateVehicle(490,1559.0000000,-1711.0999756,6.1999998,0.0000000,79,1,-1); //FBI Rancher
-	
-	AddPlayerClass(133, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   1
-	AddPlayerClass(234, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   2
-	AddPlayerClass(202, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   3
-	AddPlayerClass(201, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   4
-	AddPlayerClass(161, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   5
-	AddPlayerClass(44, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Caminhoneiro   6
-	AddPlayerClass(261, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   7
-	AddPlayerClass(258, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   8
-	AddPlayerClass(206, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   9
-	AddPlayerClass(34, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Caminhoneiro   10
-	AddPlayerClass(198, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   11
-	AddPlayerClass(236, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   12
-	AddPlayerClass(280, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //PolÃ­cial       13
-	AddPlayerClass(285, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //PolÃ­cial       14
-	AddPlayerClass(283, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //PolÃ­cial       15
-	AddPlayerClass(286, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //PolÃ­cial       16
-	AddPlayerClass(288, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //PolÃ­cial       17
-	AddPlayerClass(8, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);   //Mecanico       18
-    AddPlayerClass(42, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Mecanico       19
-    AddPlayerClass(50, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Mecanico       20
-    AddPlayerClass(255, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Motorista Bus 21
-    AddPlayerClass(253, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Motorista Bus 22
-    AddPlayerClass(120, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //MÃ¡fia          23
-    AddPlayerClass(98, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //MÃ¡fia          24
-    AddPlayerClass(117, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //MÃ¡fia          25
-    AddPlayerClass(111, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //MÃ¡fia          26
-    
 
-	LogoC = TextDrawCreate(270.5,405.0, "Carga");
-	TextDrawFont(LogoC, 1);
-	TextDrawColor(LogoC, 0x66FF00FF);
-	TextDrawLetterSize(LogoC, 0.4, 1.3);
- 	TextDrawSetOutline(LogoC, 1);
-  	TextDrawSetProportional(LogoC, 1);
-  	TextDrawAlignment(LogoC, 2);
-  	TextDrawBackgroundColor(LogoC, 0x000000FF);
-  	TextDrawSetShadow(LogoC, 1);
+	// ================ # Estava dentro da OnPlayerConnect - Sem sentido # ===============
 
-
-    LogoP = TextDrawCreate(316.5,405.0, "Pesada");
-	TextDrawFont(LogoP, 1);
-	TextDrawColor(LogoP, 0xFFFF00FF);
-	TextDrawLetterSize(LogoP, 0.4, 1.3);
- 	TextDrawSetOutline(LogoP, 1);
-  	TextDrawSetProportional(LogoP, 1);
-  	TextDrawAlignment(LogoP, 2);
-  	TextDrawBackgroundColor(LogoP, 0x000000FF);
-  	TextDrawSetShadow(LogoP, 1);
-
-	LogoB = TextDrawCreate(360.5,405.0, "Brasil");
-	TextDrawFont(LogoB, 1);
-	TextDrawColor(LogoB, 0x66FFFF);
-	TextDrawLetterSize(LogoB, 0.4, 1.3);
- 	TextDrawSetOutline(LogoB, 1);
-  	TextDrawSetProportional(LogoB, 1);
-  	TextDrawAlignment(LogoB, 2);
-  	TextDrawBackgroundColor(LogoB, 0x000000FF);
-  	TextDrawSetShadow(LogoB, 1);
-  	
-  	SiteCPB = TextDrawCreate(316.5,420.0, "www.cargapesadabrasil.com.br");
-	TextDrawFont(SiteCPB, 1);
-	TextDrawColor(SiteCPB, 0xFFFFFFFF);
-	TextDrawLetterSize(SiteCPB, 0.3, 1.0);
- 	TextDrawSetOutline(SiteCPB, 1);
-  	TextDrawSetProportional(SiteCPB, 1);
-  	TextDrawAlignment(SiteCPB, 2);
-  	TextDrawBackgroundColor(SiteCPB, 0x000000FF);
-  	TextDrawSetShadow(SiteCPB, 1);
-  	
-  	gettime(ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond]);
-	getdate(ClockTime[dYear], ClockTime[dMonth], ClockTime[dDay]);
-
-	new str[128];
-	format(str,128, "~n~%02d:%02d:%02d - %02d/%02d", ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond], ClockTime[dDay], ClockTime[dMonth]);
-    DataeHora = TextDrawCreate(316.5, 433.5, str);
-	TextDrawFont(DataeHora, 1);
-	TextDrawColor(DataeHora, 0xFFFFFFFF);
-	TextDrawLetterSize(DataeHora, 0.3, 0.8);
- 	TextDrawSetOutline(DataeHora, 1);
-  	TextDrawSetProportional(DataeHora, 1);
-  	TextDrawAlignment(DataeHora, 2);
-  	TextDrawBackgroundColor(DataeHora, 0x000000FF);
-  	TextDrawSetShadow(DataeHora, 1);
-  	
-  	Carregando = TextDrawCreate(320.5, 200.5, "Aguarde, carregando gamemode!");
-	TextDrawFont(Carregando, 1);
-	TextDrawColor(Carregando, 0xFFFFFFFF);
-	TextDrawLetterSize(Carregando, 1.0, 4.0);
- 	TextDrawSetOutline(Carregando, 1);
-  	TextDrawSetProportional(Carregando, 1);
-  	TextDrawAlignment(Carregando, 2);
-  	TextDrawBackgroundColor(Carregando, 0x000000FF);
-  	TextDrawSetShadow(Carregando, 1);
-  	
-  	Carregando1 = TextDrawCreate(195.0,250.0, "Carga");
-	TextDrawFont(Carregando1, 2);
-	TextDrawColor(Carregando1, 0x66FF00FF);
-	TextDrawLetterSize(Carregando1, 0.8, 3.0);
- 	TextDrawSetOutline(Carregando1, 1);
-  	TextDrawSetProportional(Carregando1, 1);
-  	TextDrawAlignment(Carregando1, 2);
-  	TextDrawBackgroundColor(Carregando1, 0x000000FF);
-  	TextDrawSetShadow(Carregando1, 1);
-
-    Carregando2 = TextDrawCreate(320.5,250.0, "Pesada");
-	TextDrawFont(Carregando2, 2);
-	TextDrawColor(Carregando2, 0xFFFF00FF);
-	TextDrawLetterSize(Carregando2, 0.8, 3.0);
- 	TextDrawSetOutline(Carregando2, 1);
-  	TextDrawSetProportional(Carregando2, 1);
-  	TextDrawAlignment(Carregando2, 2);
-  	TextDrawBackgroundColor(Carregando2, 0x000000FF);
-  	TextDrawSetShadow(Carregando2, 1);
-
-	Carregando3 = TextDrawCreate(449.0,250.0, "Brasil");
-	TextDrawFont(Carregando3, 2);
-	TextDrawColor(Carregando3, 0x66FFFF);
-	TextDrawLetterSize(Carregando3, 0.8, 3.0);
- 	TextDrawSetOutline(Carregando3, 1);
-  	TextDrawSetProportional(Carregando3, 1);
-  	TextDrawAlignment(Carregando3, 2);
-  	TextDrawBackgroundColor(Carregando3, 0x000000FF);
-  	TextDrawSetShadow(Carregando3, 1);
-  	
-  	Velocimetro = TextDrawCreate(316.5,420.0, " ");
-	TextDrawFont(Velocimetro, 1);
-	TextDrawColor(Velocimetro, 0xFFFFFFFF);
-	TextDrawLetterSize(Velocimetro, 0.3, 1.0);
- 	TextDrawSetOutline(Velocimetro, 1);
-  	TextDrawSetProportional(Velocimetro, 1);
-  	TextDrawAlignment(Velocimetro, 2);
-  	TextDrawBackgroundColor(Velocimetro, 0x000000FF);
-  	TextDrawSetShadow(Velocimetro, 1);
-  	
-  	DinheiroR = TextDrawCreate(486.500,77.5000,"~g~R");
-	TextDrawColor(DinheiroR, 0xffffffff);
-	TextDrawLetterSize(DinheiroR, 0.575, 2.1);
-	TextDrawFont(DinheiroR, 3);
-	TextDrawBackgroundColor(DinheiroR, 0x00000AA);
-	TextDrawSetOutline(DinheiroR, 2);
-  	
-  	SetWorldTime(ClockTime[tHour]+3);
-  	SetTimer("SyncClock", 1000,true);
-  	SetTimer("Velocidade", 500,true);
-  	SetTimer("ChecarVidadoCarro", 1000,true);
-	SetTimer("Mensagens", 300000,true);
-	return 1;
-}
-
-public OnGameModeExit()
-{
-    for(new i = 0; i <= MAX_PLAYERS; i++)
-	{
-	    if(IsPlayerConnected(i))
-	    {
-	    	new
-        		query[150];
-    		mysql_format(mysql, query, sizeof(query), "UPDATE `contas` SET `Dinheiro` = %d, `Pontos` = %d, `AdminLevel` = %d, `MsgBoasVindas` = %d WHERE `ID` = %d", PlayerInfo[i][pDinheiro], PlayerInfo[i][pPontos], PlayerInfo[i][pAdmin], PlayerInfo[i][MsgBoasVindas], PlayerInfo[i][pID]);
-   			mysql_tquery(mysql, query, "", "");
-		}
-  	}
-    return printf("Contas salvas com sucesso!");
-}
-
-public SyncClock(playerid)
-{
-	new str[128];
-	gettime(ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond]);
-	getdate(ClockTime[dYear], ClockTime[dMonth], ClockTime[dDay]);
-	format(str,128, "%02d:%02d:%02d - %02d/%02d/%04d", ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond], ClockTime[dDay], ClockTime[dMonth], ClockTime[dYear]);
-	TextDrawSetString(DataeHora, str);
-}
-
-
-public OnPlayerConnect(playerid)
-{
-    TogglePlayerSpectating(playerid, true);
-	SetPlayerColor(playerid, 0xFFFFFFFF);
- 	SendDeathMessage(INVALID_PLAYER_ID, playerid, 200);
- 	TogglePlayerClock(playerid, 0);
-    TextDrawShowForPlayer(playerid, Carregando);
-    TextDrawShowForPlayer(playerid, Carregando1);
-    TextDrawShowForPlayer(playerid, Carregando2);
-    TextDrawShowForPlayer(playerid, Carregando3);
-	SetPlayerColor(playerid, 0xAFAFAFFF);
-    CreateObject(3637,2635.1999512,-2138.6000977,20.6000004,0.0000000,0.0000000,90.0000000);
+	CreateObject(3637,2635.1999512,-2138.6000977,20.6000004,0.0000000,0.0000000,90.0000000);
 	CreateObject(3627,2232.5000000,-2243.0000000,16.0000000,0.0000000,0.0000000,135.0000000);
 	CreateObject(3627,2203.3701172,-2272.0000000,16.0000000,0.0000000,0.0000000,135.0000000);
 	Create3DTextLabel("{FFFFFF}Terminal Porto\nLos Santos", 0x0000000, 2619.5,-2227.3,19.6, 50.0, 0, 0);
-	Create3DTextLabel("{FFFFFF}DepÃ³sito Santa FÃ©\nLas Venturas", 0x0000000, 1069.3, 1943.5, 17.3, 50.0, 0, 0);
-	Create3DTextLabel("{FFFFFF}DepÃ³sito Garagem\nLas Venturas", 0x0000000, 2776.9, 913.4, 17.8, 50.0, 0, 0);
+	Create3DTextLabel("{FFFFFF}Depósito Santa Fé\nLas Venturas", 0x0000000, 1069.3, 1943.5, 17.3, 50.0, 0, 0);
+	Create3DTextLabel("{FFFFFF}Depósito Garagem\nLas Venturas", 0x0000000, 2776.9, 913.4, 17.8, 50.0, 0, 0);
 	Create3DTextLabel("{FFFFFF}Editar 1\nLos Santos", 0x0000000, 2227.8, -2210.8, 21.4, 50.0, 0, 0);
 	Create3DTextLabel("{FFFFFF}Editar 2\nLos Santos", 0x0000000, 2424.1, -2082.5, 20.2, 50.0, 0, 0);
 	CreateObject(7657,1607.4000244,2283.1999512,11.5000000,0.0000000,0.0000000,0.0000000);
@@ -1152,9 +987,195 @@ public OnPlayerConnect(playerid)
 	CreateObject(970,2682.5000000,-1865.0000000,10.6000000,0.0000000,0.0000000,140.0000000);
 	CreateObject(1278,2685.6001000,-1867.3000000,-3.0000000,180.0000000,0.0000000,18.0000000);
 
+	// =============== ## ================
+	
+	AddPlayerClass(133, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   1
+	AddPlayerClass(234, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   2
+	AddPlayerClass(202, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   3
+	AddPlayerClass(201, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   4
+	AddPlayerClass(161, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   5
+	AddPlayerClass(44, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Caminhoneiro   6
+	AddPlayerClass(261, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   7
+	AddPlayerClass(258, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   8
+	AddPlayerClass(206, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   9
+	AddPlayerClass(34, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Caminhoneiro   10
+	AddPlayerClass(198, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   11
+	AddPlayerClass(236, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Caminhoneiro   12
+	AddPlayerClass(280, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Polícial       13
+	AddPlayerClass(285, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Polícial       14
+	AddPlayerClass(283, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Polícial       15
+	AddPlayerClass(286, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Polícial       16
+	AddPlayerClass(288, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Polícial       17
+	AddPlayerClass(8, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);   //Mecanico       18
+    AddPlayerClass(42, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Mecanico       19
+    AddPlayerClass(50, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Mecanico       20
+    AddPlayerClass(255, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Motorista Bus 21
+    AddPlayerClass(253, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Motorista Bus 22
+    AddPlayerClass(120, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Máfia          23
+    AddPlayerClass(98, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0);  //Máfia          24
+    AddPlayerClass(117, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Máfia          25
+    AddPlayerClass(111, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0); //Máfia          26
+    
 
+	LogoC = TextDrawCreate(270.5,405.0, "Carga");
+	TextDrawFont(LogoC, 1);
+	TextDrawColor(LogoC, 0x66FF00FF);
+	TextDrawLetterSize(LogoC, 0.4, 1.3);
+ 	TextDrawSetOutline(LogoC, 1);
+  	TextDrawSetProportional(LogoC, 1);
+  	TextDrawAlignment(LogoC, 2);
+  	TextDrawBackgroundColor(LogoC, 0x000000FF);
+  	TextDrawSetShadow(LogoC, 1);
+
+
+    LogoP = TextDrawCreate(316.5,405.0, "Pesada");
+	TextDrawFont(LogoP, 1);
+	TextDrawColor(LogoP, 0xFFFF00FF);
+	TextDrawLetterSize(LogoP, 0.4, 1.3);
+ 	TextDrawSetOutline(LogoP, 1);
+  	TextDrawSetProportional(LogoP, 1);
+  	TextDrawAlignment(LogoP, 2);
+  	TextDrawBackgroundColor(LogoP, 0x000000FF);
+  	TextDrawSetShadow(LogoP, 1);
+
+	LogoB = TextDrawCreate(360.5,405.0, "Brasil");
+	TextDrawFont(LogoB, 1);
+	TextDrawColor(LogoB, 0x66FFFF);
+	TextDrawLetterSize(LogoB, 0.4, 1.3);
+ 	TextDrawSetOutline(LogoB, 1);
+  	TextDrawSetProportional(LogoB, 1);
+  	TextDrawAlignment(LogoB, 2);
+  	TextDrawBackgroundColor(LogoB, 0x000000FF);
+  	TextDrawSetShadow(LogoB, 1);
+  	
+  	SiteCPB = TextDrawCreate(316.5,420.0, "www.cargapesadabrasil.com.br");
+	TextDrawFont(SiteCPB, 1);
+	TextDrawColor(SiteCPB, 0xFFFFFFFF);
+	TextDrawLetterSize(SiteCPB, 0.3, 1.0);
+ 	TextDrawSetOutline(SiteCPB, 1);
+  	TextDrawSetProportional(SiteCPB, 1);
+  	TextDrawAlignment(SiteCPB, 2);
+  	TextDrawBackgroundColor(SiteCPB, 0x000000FF);
+  	TextDrawSetShadow(SiteCPB, 1);
+  	
+  	gettime(ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond]);
+	getdate(ClockTime[dYear], ClockTime[dMonth], ClockTime[dDay]);
+
+	new str[128];
+	format(str,128, "~n~%02d:%02d:%02d - %02d/%02d", ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond], ClockTime[dDay], ClockTime[dMonth]);
+    DataeHora = TextDrawCreate(316.5, 433.5, str);
+	TextDrawFont(DataeHora, 1);
+	TextDrawColor(DataeHora, 0xFFFFFFFF);
+	TextDrawLetterSize(DataeHora, 0.3, 0.8);
+ 	TextDrawSetOutline(DataeHora, 1);
+  	TextDrawSetProportional(DataeHora, 1);
+  	TextDrawAlignment(DataeHora, 2);
+  	TextDrawBackgroundColor(DataeHora, 0x000000FF);
+  	TextDrawSetShadow(DataeHora, 1);
+  	
+  	Carregando = TextDrawCreate(320.5, 200.5, "Aguarde, carregando gamemode!");
+	TextDrawFont(Carregando, 1);
+	TextDrawColor(Carregando, 0xFFFFFFFF);
+	TextDrawLetterSize(Carregando, 1.0, 4.0);
+ 	TextDrawSetOutline(Carregando, 1);
+  	TextDrawSetProportional(Carregando, 1);
+  	TextDrawAlignment(Carregando, 2);
+  	TextDrawBackgroundColor(Carregando, 0x000000FF);
+  	TextDrawSetShadow(Carregando, 1);
+  	
+  	Carregando1 = TextDrawCreate(195.0,250.0, "Carga");
+	TextDrawFont(Carregando1, 2);
+	TextDrawColor(Carregando1, 0x66FF00FF);
+	TextDrawLetterSize(Carregando1, 0.8, 3.0);
+ 	TextDrawSetOutline(Carregando1, 1);
+  	TextDrawSetProportional(Carregando1, 1);
+  	TextDrawAlignment(Carregando1, 2);
+  	TextDrawBackgroundColor(Carregando1, 0x000000FF);
+  	TextDrawSetShadow(Carregando1, 1);
+
+    Carregando2 = TextDrawCreate(320.5,250.0, "Pesada");
+	TextDrawFont(Carregando2, 2);
+	TextDrawColor(Carregando2, 0xFFFF00FF);
+	TextDrawLetterSize(Carregando2, 0.8, 3.0);
+ 	TextDrawSetOutline(Carregando2, 1);
+  	TextDrawSetProportional(Carregando2, 1);
+  	TextDrawAlignment(Carregando2, 2);
+  	TextDrawBackgroundColor(Carregando2, 0x000000FF);
+  	TextDrawSetShadow(Carregando2, 1);
+
+	Carregando3 = TextDrawCreate(449.0,250.0, "Brasil");
+	TextDrawFont(Carregando3, 2);
+	TextDrawColor(Carregando3, 0x66FFFF);
+	TextDrawLetterSize(Carregando3, 0.8, 3.0);
+ 	TextDrawSetOutline(Carregando3, 1);
+  	TextDrawSetProportional(Carregando3, 1);
+  	TextDrawAlignment(Carregando3, 2);
+  	TextDrawBackgroundColor(Carregando3, 0x000000FF);
+  	TextDrawSetShadow(Carregando3, 1);
+  	
+  	Velocimetro = TextDrawCreate(316.5,420.0, " ");
+	TextDrawFont(Velocimetro, 1);
+	TextDrawColor(Velocimetro, 0xFFFFFFFF);
+	TextDrawLetterSize(Velocimetro, 0.3, 1.0);
+ 	TextDrawSetOutline(Velocimetro, 1);
+  	TextDrawSetProportional(Velocimetro, 1);
+  	TextDrawAlignment(Velocimetro, 2);
+  	TextDrawBackgroundColor(Velocimetro, 0x000000FF);
+  	TextDrawSetShadow(Velocimetro, 1);
+  	
+  	DinheiroR = TextDrawCreate(486.500,77.5000,"~g~R");
+	TextDrawColor(DinheiroR, 0xffffffff);
+	TextDrawLetterSize(DinheiroR, 0.575, 2.1);
+	TextDrawFont(DinheiroR, 3);
+	TextDrawBackgroundColor(DinheiroR, 0x00000AA);
+	TextDrawSetOutline(DinheiroR, 2);
+  	
+  	SetWorldTime(ClockTime[tHour]+3);
+  	SetTimer("SyncClock", 1000,true);
+  	SetTimer("Velocidade", 500,true);
+  	SetTimer("ChecarVidadoCarro", 1000,true);
+	SetTimer("Mensagens", 300000,true);
+	return 1;
+}
+
+public OnGameModeExit()
+{
+    for(new i = 0; i <= MAX_PLAYERS; i++)
+	{
+	    if(IsPlayerConnected(i))
+	    {
+	    	new query[150];
+    		mysql_format(mysql, query, sizeof(query), "UPDATE `contas` SET `Dinheiro` = %d, `Pontos` = %d, `AdminLevel` = %d, `MsgBoasVindas` = %d WHERE `ID` = %d", PlayerInfo[i][pDinheiro], PlayerInfo[i][pPontos], PlayerInfo[i][pAdmin], PlayerInfo[i][MsgBoasVindas], PlayerInfo[i][pID]);
+   			mysql_tquery(mysql, query, "", "");
+		}
+  	}
+    return printf("Contas salvas com sucesso!");
+}
+
+public SyncClock(playerid)
+{
+	new str[128];
+	gettime(ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond]);
+	getdate(ClockTime[dYear], ClockTime[dMonth], ClockTime[dDay]);
+	format(str,128, "%02d:%02d:%02d - %02d/%02d/%04d", ClockTime[tHour], ClockTime[tMinute], ClockTime[tSecond], ClockTime[dDay], ClockTime[dMonth], ClockTime[dYear]);
+	TextDrawSetString(DataeHora, str);
+}
+
+
+public OnPlayerConnect(playerid)
+{
+    TogglePlayerSpectating(playerid, true);
+	SetPlayerColor(playerid, 0xFFFFFFFF);
+ 	SendDeathMessage(INVALID_PLAYER_ID, playerid, 200);
+ 	TogglePlayerClock(playerid, 0);
+    TextDrawShowForPlayer(playerid, Carregando);
+    TextDrawShowForPlayer(playerid, Carregando1);
+    TextDrawShowForPlayer(playerid, Carregando2);
+    TextDrawShowForPlayer(playerid, Carregando3);
+	SetPlayerColor(playerid, 0xAFAFAFFF);
+    
     RemoveBuildingForPlayer(playerid, 1297, 2546.0859, -1475.1641, 26.3047, 0.25); //Lava jato de LS - Poste
-    RemoveBuildingForPlayer(playerid, 1297, 2446.3359, -1426.4609, 26.2266, 0.25); //Rodriguez Ferro e AÃ§o - Poste
+    RemoveBuildingForPlayer(playerid, 1297, 2446.3359, -1426.4609, 26.2266, 0.25); //Rodriguez Ferro e Aço - Poste
 	RemoveBuildingForPlayer(playerid, 1396, 2232.4375, -2458.5781, 36.1953, 0.25);
 	RemoveBuildingForPlayer(playerid, 1378, 2232.4375, -2458.5781, 36.1953, 0.25);
 	RemoveBuildingForPlayer(playerid, 3682, 2743.5078, -2193.2813, 36.5469, 0.25);
@@ -1473,14 +1494,13 @@ public OnPlayerConnect(playerid)
 	TextDrawHideForPlayer(playerid, Carregando1);
 	TextDrawHideForPlayer(playerid, Carregando2);
 	TextDrawHideForPlayer(playerid, Carregando3);
+
 	SendClientMessage(playerid, 0x00BFFFFF, "Bem vindo ao {FFFF00}Carga {FFFF00}Pesada {FFFF00}Brasil");
 	SendClientMessage(playerid, 0x00BFFFFF, "Lembre-se de ler as {FFFF00}/regras {00BFFF}antes de jogar!");
 	SendClientMessage(playerid, 0x00BFFFFF, "Digite {FFFF00}/comandos {00BFFF}para saber todos os comandos do jogo.");
-	SendClientMessage(playerid, 0x00BFFFFF, "Digite {FFFF00}/ajuda {00BFFF}caso tenha dÃºvida em alguma coisa.");
-	SendClientMessage(playerid, 0x00BFFFFF, "Digite {FFFF00}/creditos {00BFFF} para saber quem participou da criaÃ§Ã£o do gamemode.");
-    new
-        query[128],
-        playername[MAX_PLAYER_NAME];
+	SendClientMessage(playerid, 0x00BFFFFF, "Digite {FFFF00}/ajuda {00BFFF}caso tenha dúvida em alguma coisa.");
+	SendClientMessage(playerid, 0x00BFFFFF, "Digite {FFFF00}/creditos {00BFFF} para saber quem participou da criação do gamemode.");
+    new query[128], playername[MAX_PLAYER_NAME];
 
     GetPlayerName(playerid, playername, sizeof(playername));
     mysql_format(mysql, query, sizeof(query), "SELECT `Senha`, `ID` FROM `contas` WHERE `Nome` = '%e' LIMIT 1", playername);
@@ -1499,8 +1519,7 @@ public OnPlayerDisconnect(playerid, reason)
 	    SetPlayerColor(playerid, 0xFFFFFFFF);
         SendDeathMessage(INVALID_PLAYER_ID, playerid, 201);
 	}
-    new
-        query[150];
+    new query[150];
     mysql_format(mysql, query, sizeof(query), "UPDATE `contas` SET `Dinheiro` = %d, `Pontos` = %d, `AdminLevel` = %d, `MsgBoasVindas` = %d WHERE `ID` = %d", PlayerInfo[playerid][pDinheiro], PlayerInfo[playerid][pPontos], PlayerInfo[playerid][pAdmin], PlayerInfo[playerid][MsgBoasVindas], PlayerInfo[playerid][pID]);
     mysql_tquery(mysql, query, "", "");
 	return 1;
@@ -1509,7 +1528,7 @@ public OnPlayerDisconnect(playerid, reason)
 public OnPlayerCommandPerformed(playerid, cmdtext[], success)
 {
 	new string[128];
-	format(string,128,"[ERRO] O comando {FFFF00}%s {FF0000}nÃ£o existe. Digite {FFFF00}/comandos {FF0000}para ver todos os comandos.", cmdtext);
+	format(string,128,"[ERRO] O comando {FFFF00}%s {FF0000}não existe. Digite {FFFF00}/comandos {FF0000}para ver todos os comandos.", cmdtext);
     if(!success) SendClientMessage(playerid, 0xFF0000AA, string);
     return 1;
 }
@@ -1548,25 +1567,25 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 		new Ponto = GetPlayerScore(playerid);
 		if(Ponto < 25 && pvehiclemodel == 403 ||Ponto < 25 && pvehiclemodel == 482 || Ponto < 50 && pvehiclemodel == 514 || Ponto < 50 && pvehiclemodel == 456 || Ponto < 75 && pvehiclemodel == 515)
 		{
-			SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem pontos suficientes para trabalhar com esse caminhÃ£o! Veja /pontos.");
+			SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem pontos suficientes para trabalhar com esse caminhão! Veja /pontos.");
 			RemovePlayerFromVehicle(playerid);
 			return 1;
 		}
 		if(PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 440 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 482 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 414 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 499 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 498 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 456)
 		{
-		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o Ã© caminhoneiro, entÃ£o nÃ£o pode pegar nenhum caminhÃ£o.");
+		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não é caminhoneiro, então não pode pegar nenhum caminhão.");
 		    RemovePlayerFromVehicle(playerid);
 		    return 1;
 		}
 		if(PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 403 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 455 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 514 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 578 || PlayerInfo[playerid][pClasse] != Caminhoneiro && pvehiclemodel == 515)
 		{
-		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o Ã© caminhoneiro, entÃ£o nÃ£o pode pegar nenhum caminhÃ£o.");
+		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não é caminhoneiro, então não pode pegar nenhum caminhão.");
 		    RemovePlayerFromVehicle(playerid);
 		    return 1;
 		}
 		if(PlayerInfo[playerid][pClasse] != Policia && pvehiclemodel == 596 || PlayerInfo[playerid][pClasse] != Policia && pvehiclemodel == 599 || PlayerInfo[playerid][pClasse] != Policia && pvehiclemodel == 523)
 		{
-		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o Ã© policial, entÃ£o nÃ£o pode pegar nenhum carro de polÃ­cia.");
+		    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não é policial, então não pode pegar nenhum carro de polícia.");
 		    RemovePlayerFromVehicle(playerid);
 		}
 		else
@@ -1728,7 +1747,7 @@ public OnPlayerRequestSpawn(playerid)
 {
 	if(PlayerInfo[playerid][pLogado] == false)
 	{
-	    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª foi kickado por tentar nascer sem digitar a senha");
+	    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você foi kickado por tentar nascer sem digitar a senha");
 	    Kick(playerid);
 	}
     TextDrawShowForPlayer(playerid, LogoC);
@@ -1770,7 +1789,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
             }
             else
             {
-                ShowPlayerDialog(playerid, DialogoLogin, DIALOG_STYLE_PASSWORD, "Carga Pesada Brasil - LOGIN", "{FFFFFF}Bem-vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\n{FF0000} Sua senha estÃ¡ incorreta.\n{FFFFFF}Se vocÃª nÃ£o Ã© o dono desta conta clique em sair pois vocÃª nÃ£o estÃ¡ autorizado Ã  entrar nela.", "Entrar", "Sair");
+                ShowPlayerDialog(playerid, DialogoLogin, DIALOG_STYLE_PASSWORD, "Carga Pesada Brasil - LOGIN", "{FFFFFF}Bem-vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\n{FF0000} Sua senha está incorreta.\n{FFFFFF}Se você não é o dono desta conta clique em sair pois você não está autorizado à entrar nela.", "Entrar", "Sair");
     		}
         }
         case DialogoRegistro:
@@ -1779,7 +1798,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
             if(strlen(inputtext) < 6)
             {
                 SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Sua senha precisa ter mais que 5 caracteres.");
-                return ShowPlayerDialog(playerid, DialogoRegistro, DIALOG_STYLE_INPUT,"Carga Pesada Brasil - REGISTRAR","{FFFFFF}Bem vindo ao {FFFF00}Carga Pesada Brasil.\n\n{FFFFFF}VocÃª precisa registrar sua conta para poder jogar conosco.\n\n{FF0000}NÃ£o revele sua senha para nenhuma pessoa{FFFFFF}, nÃ£o nos responsabilizamos por contas hackeadas!\n\nDigite uma senha para poder registrar sua conta no nosso banco de dados.\n\nDivirta-se!","Registrar","Sair");
+                return ShowPlayerDialog(playerid, DialogoRegistro, DIALOG_STYLE_INPUT,"Carga Pesada Brasil - REGISTRAR","{FFFFFF}Bem vindo ao {FFFF00}Carga Pesada Brasil.\n\n{FFFFFF}Você precisa registrar sua conta para poder jogar conosco.\n\n{FF0000}Não revele sua senha para nenhuma pessoa{FFFFFF}, não nos responsabilizamos por contas hackeadas!\n\nDigite uma senha para poder registrar sua conta no nosso banco de dados.\n\nDivirta-se!","Registrar","Sair");
             }
             new
                 query[512],
@@ -1796,12 +1815,6 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
         case DialogoCaminhaoDescarregamento: Dialogo_CaminhaoDescarregamento(playerid, response, listitem);
     }
     return 1;
-}
-
-CMD:teleporte(playerid, params[])
-{
-	SetPlayerPos(playerid, -699.1899,-7450.6929,37.9266);
-	return 1;
 }
 
 CMD:t(playerid, params[])
@@ -1844,7 +1857,7 @@ CMD:pm(playerid, params[])
 				SendClientMessage(OutroPlayer, COR_AMARELO, Msg2);
 			}
 			else
-				SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador nÃ£o estÃ¡ online!");
+				SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador não está online!");
 		}
 	}
 	else
@@ -1863,7 +1876,7 @@ CMD:mudar(playerid, params[])
 CMD:comandos(playerid, params[])
 {
 	new string[sizeof(TabelaCmds)*128];
-	format(string,1024,"{FFFFFF}Comando = FunÃ§Ã£o", GetPlayerScore(playerid));
+	format(string,1024,"{FFFFFF}Comando = Função", GetPlayerScore(playerid));
 	for(new i=1; i <sizeof(TabelaCmds); i ++)
 	format(string,sizeof(string),"%s\n %s",string,TabelaCmds[i]);
 	ShowPlayerDialog(playerid, 93, DIALOG_STYLE_MSGBOX,"\tTabela de comandos", string, "OK", "");
@@ -1873,7 +1886,7 @@ CMD:comandos(playerid, params[])
 CMD:pontos(playerid, params[])
 {
 	new string[sizeof(Pontos)*128];
-	format(string,1024,"{00BFFF}VocÃª tem {FFFF00}%d {00BFFF}pontos.", PlayerInfo[playerid][pPontos]);
+	format(string,1024,"{00BFFF}Você tem {FFFF00}%d {00BFFF}pontos.", PlayerInfo[playerid][pPontos]);
 	for(new i=1; i <sizeof(Pontos); i ++)
 	format(string,sizeof(string),"%s\n %s",string,Pontos[i]);
 	ShowPlayerDialog(playerid, 94, DIALOG_STYLE_MSGBOX,"\tTabela de Pontos", string, "OK", "");
@@ -1883,22 +1896,22 @@ CMD:pontos(playerid, params[])
 CMD:trabalhar(playerid, params[])
 {
 	if(PlayerInfo[playerid][pLogado] == false)
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa estar logado para poder trabalhar.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa estar logado para poder trabalhar.");
 
 	if(PlayerInfo[playerid][pTrabalhando] == true)
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª jÃ¡ estÃ¡ trabalhando.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você já está trabalhando.");
 
 	switch (PlayerInfo[playerid][pClasse])
 	{
 	    case Caminhoneiro:
 	    {
 	        if(GetPlayerVehicleSeat(playerid) != 0)
-	        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa ser o motorista para comeÃ§ar a trabalhar.");
+	        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa ser o motorista para começar a trabalhar.");
 	        
 	        new ListadeProdutos[50], NumProducts, TotalLoadList[1000];
 	        switch (GetVehicleModel(GetPlayerVehicleID(playerid)))
 			{
-				case VeiculoRoadTrain, VeiculoLineRunner, VeiculoTanker:
+				case VeiculoRoadTrain, VeiculoLineRunner, VeiculoTanker: // veiculos com trailer
 				{
 					switch (GetVehicleModel(GetVehicleTrailer(GetPlayerVehicleID(playerid))))
 					{
@@ -1909,11 +1922,11 @@ CMD:trabalhar(playerid, params[])
 						case TrailerFluidos:
 						    ListadeProdutos = Product_GetList(CaminhaoFluido, NumProducts);
 						case 0:
-						    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa de um trailer para continuar!");
+						    SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa de um trailer para continuar!");
 					}
 				}
-				case 440:
-				    ListadeProdutos = Product_GetList(CaminhaoFechado, NumProducts);
+				case  VeiculoRumpo, VeiculoBurrito, VeiculoYankee, VeiculoMule, VeiculoBoxVille, VeiculoBenson: // veiculos sem trailer
+					ListadeProdutos = Product_GetList(CaminhaoFechado, NumProducts);
 			}
 
 			for (new i; i < NumProducts; i++)
@@ -1927,7 +1940,7 @@ CMD:trabalhar(playerid, params[])
 CMD:gmr(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] != 5)
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o pra usar este comando.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão pra usar este comando.");
 
  	GameModeExit();
 	return 1;
@@ -1936,7 +1949,7 @@ CMD:gmr(playerid, params[])
 CMD:daradmin(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] < 5 && !IsPlayerAdmin(playerid))
-		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o para usar este comando.");
+		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão para usar este comando.");
 
  	new tmp[24], index; tmp = strtok(params, index);
 	if(!strlen(tmp))
@@ -1947,7 +1960,7 @@ CMD:daradmin(playerid, params[])
 	tmp = strtok(params, index);
 	level = strval(tmp);
 	if(level < 0 || level > 5)
-        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Level somente de 0 Ã  5.");
+        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Level somente de 0 à 5.");
 
 	PlayerInfo[giveid][pAdmin] = level;
 	new playername[24];
@@ -1955,23 +1968,23 @@ CMD:daradmin(playerid, params[])
 	GetPlayerName(playerid,playername,sizeof(playername));
 	if(level == 1)
 	{
-        format(string, sizeof(string), "VocÃª foi setado Ajudante, level 1, pelo %s %s.", CargoAdmin(playerid), playername);
+        format(string, sizeof(string), "Você foi setado Ajudante, level 1, pelo %s %s.", CargoAdmin(playerid), playername);
 		SendClientMessage(giveid, COR_ROSA, string);
-		SendClientMessage(giveid, COR_AZUL, "ParabÃ©ns, vocÃª foi setado pelo primeiro level de administrador do {FF0000}Carga Pesada Brasil{00BFFF}!");
-		SendClientMessage(giveid, COR_AZUL, "Esperamos que vocÃª tenha uma Ã³tima estadia como parte da administraÃ§Ã£o do nosso servidor.");
-		SendClientMessage(giveid, COR_AZUL, "Leia as {FF0000}/regrasadmin {00BFFF}para ficar dentro das regras daadministraÃ§Ã£o do CPB.");
+		SendClientMessage(giveid, COR_AZUL, "Parabéns, você foi setado pelo primeiro level de administrador do {FF0000}Carga Pesada Brasil{00BFFF}!");
+		SendClientMessage(giveid, COR_AZUL, "Esperamos que você tenha uma ótima estadia como parte da administração do nosso servidor.");
+		SendClientMessage(giveid, COR_AZUL, "Leia as {FF0000}/regrasadmin {00BFFF}para ficar dentro das regras daadministração do CPB.");
 		SendClientMessage(giveid, COR_AZUL, "Digite {FF0000}/acmds {00BFFF}para saber os comandos do seu atual cargo de administrador.");
 		return 1;
 	}
 	if(level == 0)
 	{
-	    format(string, sizeof(string), "O %s %s te expulsou da Equipe da AdministraÃ§Ã£o do Carga Pesada Brasil.", CargoAdmin(playerid), playername);
+	    format(string, sizeof(string), "O %s %s te expulsou da Equipe da Administração do Carga Pesada Brasil.", CargoAdmin(playerid), playername);
 	    SendClientMessage(giveid, COR_VERMELHO, string);
 	    SendClientMessage(giveid, COR_VERMELHO, "Seu level foi setado para 0.");
 	    SendClientMessage(giveid, COR_AZUL, "Agradescemos sua compania. Bom jogo!");
 		return 1;
 	}
-	format(string, sizeof(string), "VocÃª foi setado %s, level %d, pelo %s %s.", CargoAdmin(giveid), level, CargoAdmin(playerid), playername);
+	format(string, sizeof(string), "Você foi setado %s, level %d, pelo %s %s.", CargoAdmin(giveid), level, CargoAdmin(playerid), playername);
 	SendClientMessage(giveid, COR_AZUL, string);
 	return 1;
 }
@@ -1979,12 +1992,12 @@ CMD:daradmin(playerid, params[])
 CMD:regrasadmin(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] == 0)
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o para usar esse comando.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão para usar esse comando.");
 
 	new string[sizeof(RegrasAdmin)*128];
 	for(new i=1; i <sizeof(RegrasAdmin); i ++)
 	format(string,sizeof(string),"%s\n %s",string,RegrasAdmin[i]);
-	ShowPlayerDialog(playerid, 95, DIALOG_STYLE_MSGBOX,"\tRegras de AdministraÃ§Ã£o", string, "OK", "");
+	ShowPlayerDialog(playerid, 95, DIALOG_STYLE_MSGBOX,"\tRegras de Administração", string, "OK", "");
 	return 1;
 
 }
@@ -1992,10 +2005,10 @@ CMD:regrasadmin(playerid, params[])
 CMD:spawncarro(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] == 0)
-		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o para usar este comando.");
+		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão para usar este comando.");
 
 	if(!IsPlayerInAnyVehicle(playerid))
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa estar em um veÃ­culo para spawna-lo.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa estar em um veículo para spawna-lo.");
 
     SetVehicleToRespawn(GetPlayerVehicleID(playerid));
 	RemovePlayerFromVehicle(playerid);
@@ -2006,14 +2019,33 @@ CMD:spawncarro(playerid, params[])
 CMD:acmds(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] == 0)
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o pra usar esse comando.");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão pra usar esse comando.");
 
 	new string[sizeof(AdminCmds)*128];
 	for(new i=1; i <sizeof(AdminCmds); i ++)
 	format(string,sizeof(string),"%s\n %s",string,AdminCmds[i]);
-	ShowPlayerDialog(playerid, 95, DIALOG_STYLE_MSGBOX,"\tComandos da AdministraÃ§Ã£o", string, "OK", "");
+	ShowPlayerDialog(playerid, 95, DIALOG_STYLE_MSGBOX,"\tComandos da Administração", string, "OK", "");
 	return 1;
 }
+
+CMD:darpontos(playerid, params[])
+{
+	if(PlayerInfo[playerid][pAdmin] == 0)
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão pra usar esse comando.");
+
+	new pontos, pontosPara, pontosAtual, msg[128];
+
+	if(sscanf(params, "ii", pontosPara, pontos)) return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Use /darpontos [id] [pontos]");
+
+	pontosAtual = GetPlayerScore(pontosPara);
+	SetPlayerScore(pontosPara, pontosAtual + pontos);
+	PlayerInfo[pontosPara][pPontos] = pontosAtual + pontos;
+
+	format(msg, sizeof(msg), "[Carga Pesada Brasil] Um administrador lhe deu %d pontos", pontos);
+	SendClientMessage(pontosPara, COR_AMARELO, msg);
+	return 1;
+}
+
 
 CMD:admins(playerid, params[])
 {
@@ -2041,7 +2073,7 @@ CMD:admins(playerid, params[])
 CMD:ip(playerid, params[])
 {
 	if(PlayerInfo[playerid][pAdmin] < 1)
-        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o tem permissÃ£o para usar este comando!");
+        return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não tem permissão para usar este comando!");
 
 	new tmp[24], idx;
 	tmp = strtok(params,idx);
@@ -2089,22 +2121,22 @@ CMD:spec(playerid, params[])
 				return 1;
 			}
 			else
-  				return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o estÃ¡ espectando ninguÃ©m.");
+  				return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não está espectando ninguém.");
 		}
 		new giveid = ReturnUser(tmp);
   		if(!IsPlayerConnected(giveid))
-	   		return SendClientMessage(playerid, COR_VERMELHO,"[ERRO] Jogador nÃ£o conectado");
+	   		return SendClientMessage(playerid, COR_VERMELHO,"[ERRO] Jogador não conectado");
 		else if(giveid == playerid)
-			return SendClientMessage(playerid, COR_VERMELHO,"[ERRO] NÃ£o Ã© possÃ­vel se espiar.");
+			return SendClientMessage(playerid, COR_VERMELHO,"[ERRO] Não é possível se espiar.");
 		else if(PlayerInfo[giveid][pAdmin] >= 5)
-			return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª nÃ£o pode dar spec nos Fundadores.");
+			return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você não pode dar spec nos Fundadores.");
 		else if(GetPlayerState(giveid) == PLAYER_STATE_SPECTATING)
-			return	SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador escolhido jÃ¡ estÃ¡ espectando alguÃ©m.");
+			return	SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador escolhido já está espectando alguém.");
 		else if(GetPlayerState(giveid) != 1 && GetPlayerState(giveid) != 2 && GetPlayerState(giveid) != 3)
-	 		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] O jogador nÃ£o estÃ¡ jogando.");
+	 		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] O jogador não está jogando.");
 		if(GetPlayerState(playerid) != PLAYER_STATE_SPECTATING)
 		{
-			SendClientMessage(playerid, COR_VERMELHO, "[SPEC] VocÃª estÃ¡ espiando um jogador. Para sair digite /spec off.");
+			SendClientMessage(playerid, COR_VERMELHO, "[SPEC] Você está espiando um jogador. Para sair digite /spec off.");
 			StartSpectate(playerid, giveid);
 		}
 	}
@@ -2124,12 +2156,12 @@ CMD:reportar(playerid, params[])
 		id = strval(tmp);
 
 	if(!IsPlayerConnected(id) || id == playerid)
-		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador nÃ£o estÃ¡ online!");
+		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Jogador não está online!");
 	else
 	{
 	    new string[128];
 	   	AdminChat(COR_VERMELHO," ");
-		format(string, 128,"[REPORT] DenÃºncia de %s (id: %d) contra %s (id: %d) | %s",NomedoPlayer(playerid),playerid,NomedoPlayer(id),id,params[strlen(tmp)+1]);
+		format(string, 128,"[REPORT] Denúncia de %s (id: %d) contra %s (id: %d) | %s",NomedoPlayer(playerid),playerid,NomedoPlayer(id),id,params[strlen(tmp)+1]);
 		AdminChat(COR_AZUL,string);
 
 		format(string, 128, "~n~~n~~n~~w~Denuncia de %s(%d) ~n~~p~contra %s(%d)~n~~r~Motivo: %s",NomedoPlayer(playerid),playerid,NomedoPlayer(id),id,params[strlen(tmp)+1]);
@@ -2142,7 +2174,7 @@ CMD:reportar(playerid, params[])
 				GameTextForPlayer(i,string,5000,5);
 			}
 		}
-		SendClientMessage(playerid,COR_AMARELO,"DenÃºncia enviada. Nossos administradores estarÃ£o de olho no player. Obrigado por reportar!");
+		SendClientMessage(playerid,COR_AMARELO,"Denúncia enviada. Nossos administradores estarão de olho no player. Obrigado por reportar!");
 
 	}
 	return 1;
@@ -2388,20 +2420,18 @@ public Mensagens()
 forward ChecarConta(playerid);
 public ChecarConta(playerid)
 {
-    new
-        rows,
-        fields;
-    cache_get_data(rows, fields, mysql);
+    new rows;
+    cache_get_row_count(rows);
 
     if(rows)
     {
-        cache_get_field_content(0, "Senha", PlayerInfo[playerid][pSenha], mysql, 129);
-        PlayerInfo[playerid][pID] = cache_get_field_content_int(0, "ID");
-        ShowPlayerDialog(playerid, DialogoLogin, DIALOG_STYLE_PASSWORD, "Carga Pesada Brasil - LOGIN", "{FFFFFF}Bem-vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\nVocÃª tem uma conta em nosso banco de dados, por favor, digite sua senha para logar.\n\nDivirta-se!", "Entrar", "Sair");
+    	cache_get_value_name(0, "Senha", PlayerInfo[playerid][pSenha]);
+    	cache_get_value_name_int(0, "ID", PlayerInfo[playerid][pID]);
+        ShowPlayerDialog(playerid, DialogoLogin, DIALOG_STYLE_PASSWORD, "Carga Pesada Brasil - LOGIN", "{FFFFFF}Bem-vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\nVocê tem uma conta em nosso banco de dados, por favor, digite sua senha para logar.\n\nDivirta-se!", "Entrar", "Sair");
     }
     else
     {
-        ShowPlayerDialog(playerid, DialogoRegistro, DIALOG_STYLE_INPUT,"Carga Pesada Brasil - REGISTRAR","{FFFFFF}Bem vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\nVocÃª precisa registrar sua conta para poder jogar conosco.\n\n{FF0000}NÃ£o revele sua senha para nenhuma pessoa{FFFFFF}, nÃ£o nos responsabilizamos por contas hackeadas!\n\nDigite uma senha para poder registrar sua conta no nosso banco de dados.\n\nDivirta-se!","Registrar","Sair");
+        ShowPlayerDialog(playerid, DialogoRegistro, DIALOG_STYLE_INPUT,"Carga Pesada Brasil - REGISTRAR","{FFFFFF}Bem vindo ao {FFFF00}Carga Pesada Brasil{FFFFFF}.\n\nVocê precisa registrar sua conta para poder jogar conosco.\n\n{FF0000}Não revele sua senha para nenhuma pessoa{FFFFFF}, não nos responsabilizamos por contas hackeadas!\n\nDigite uma senha para poder registrar sua conta no nosso banco de dados.\n\nDivirta-se!","Registrar","Sair");
     }
     return true;
 }
@@ -2409,17 +2439,16 @@ public ChecarConta(playerid)
 forward CarregarConta(playerid);
 public CarregarConta(playerid)
 {
-    PlayerInfo[playerid][pAdmin] = cache_get_field_content_int(0, "AdminLevel");
-    PlayerInfo[playerid][pIP] = cache_get_field_content_int(0, "IP");
-    PlayerInfo[playerid][pDinheiro] = cache_get_field_content_int(0, "Dinheiro");
-    PlayerInfo[playerid][MsgBoasVindas] = cache_get_field_content_int(0, "MsgBoasVindas");
-	PlayerInfo[playerid][pPontos] = cache_get_field_content_int(0, "Pontos");
+	cache_get_value_name_int(0, "AdminLevel", PlayerInfo[playerid][pAdmin]);
+	cache_get_value_name_int(0, "Dinheiro", PlayerInfo[playerid][pDinheiro]);
+	cache_get_value_name_int(0, "MsgBoasVindas", PlayerInfo[playerid][MsgBoasVindas]);
+	cache_get_value_name_int(0, "Pontos", PlayerInfo[playerid][pPontos]);
     TogglePlayerSpectating(playerid, false);
 	SetPlayerScore(playerid, PlayerInfo[playerid][pPontos]);
     GivePlayerMoney(playerid, PlayerInfo[playerid][pDinheiro]);
     PlayerInfo[playerid][pLogado] = true;
     SpawnPlayer(playerid);
-    SendClientMessage(playerid, -1, "VocÃª estÃ¡ logado no Carga Pesada Brasil.");
+    SendClientMessage(playerid, -1, "Você está logado no Carga Pesada Brasil.");
     return true;
 }
 
@@ -2459,7 +2488,7 @@ Dialogo_CaminhaoCarga(playerid, response, listitem)
 				    ProductList = Product_GetList(CaminhaoFluido, NumProducts);
 			}
 		}
-		case 440:
+		case  VeiculoRumpo, VeiculoBurrito, VeiculoYankee, VeiculoMule, VeiculoBoxVille, VeiculoBenson: // veiculos sem trailer
 		    ProductList = Product_GetList(CaminhaoFechado, NumProducts);
 	}
 	PlayerInfo[playerid][CargaID] = ProductList[listitem];
@@ -2511,7 +2540,7 @@ Dialogo_CaminhaoDescarregamento(playerid, response, listitem)
 	y3 = LocalCargaDescarga[PlayerInfo[playerid][Carregamento]][LocY];
 	z3 = LocalCargaDescarga[PlayerInfo[playerid][Carregamento]][LocZ];
 	SetPlayerCheckpoint(playerid, x3, y3, z3, 7);
-	format(LoadMsg, 128, "VocÃª estÃ¡ carregando %s de %s para %s", loadName, startlocName, endlocName);
+	format(LoadMsg, 128, "Você está carregando %s de %s para %s", loadName, startlocName, endlocName);
 	SendClientMessage(playerid, 0xFFFFFFFF, LoadMsg);
 
 	return 1;
@@ -2520,16 +2549,16 @@ Dialogo_CaminhaoDescarregamento(playerid, response, listitem)
 Caminhoneiro_EntrouCP(playerid)
 {
 	if (GetPlayerVehicleID(playerid) != PlayerInfo[playerid][VeiculoID])
-	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa estar em um caminhÃ£o para carregar seu trailer!");
+	    return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa estar em um caminhão para carregar seu trailer!");
 	if (PlayerInfo[playerid][TrailerID] != GetVehicleTrailer(GetPlayerVehicleID(playerid)))
-		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] VocÃª precisa de um trailer para continuar o trabalho!");
+		return SendClientMessage(playerid, COR_VERMELHO, "[ERRO] Você precisa de um trailer para continuar o trabalho!");
 
     switch (PlayerInfo[playerid][PartedoTrabalho])
     {
 		case 1:
-			SendClientMessage(playerid, COR_AMARELO, "Carregando seu caminhÃ£o, por favor, aguarde!");
+			SendClientMessage(playerid, COR_AMARELO, "Carregando seu caminhão, por favor, aguarde!");
 		case 2:
-		    SendClientMessage(playerid, COR_AMARELO, "Descarregando seu caminhÃ£o, por favor, aguarde!");
+		    SendClientMessage(playerid, COR_AMARELO, "Descarregando seu caminhão, por favor, aguarde!");
 	}
 	TogglePlayerControllable(playerid, 0);
 	PlayerInfo[playerid][TempoCargaDescarga] = SetTimerEx("Caminhoneiro_CarregarDesc", 5000, false, "d" , playerid);
@@ -2554,7 +2583,7 @@ public Caminhoneiro_CarregarDesc(playerid)
 			z = LocalCargaDescarga[PlayerInfo[playerid][Descarregamento]][LocZ];
 			SetPlayerCheckpoint(playerid, x, y, z, 7);
 			TogglePlayerControllable(playerid, 1);
-			format(UnloadMsg, 100, "Leve a carga de %s atÃ© %s.", Load, EndLoc);
+			format(UnloadMsg, 100, "Leve a carga de %s até %s.", Load, EndLoc);
 			SendClientMessage(playerid, 0xFFFFFFFF, UnloadMsg);
 		}
 		case 2: //Quando o player vai entregar a carga
@@ -2574,7 +2603,7 @@ public Caminhoneiro_CarregarDesc(playerid)
 			Distance = floatsqroot(((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1)));
 			Payment = floatround((Distance * ACarga[PlayerInfo[playerid][CargaID]][PayPerUnit]), floatround_floor);
 			RewardPlayer(playerid, Payment, 0);
-			format(Message, 128, "VocÃª finalizou a entrega e ganhou R$%i.", Payment);
+			format(Message, 128, "Você finalizou a entrega e ganhou R$%i.", Payment);
 			SendClientMessage(playerid, 0xFFFFFFFF, Message);
 			TogglePlayerControllable(playerid, 1);
 			if (Distance > 3000.0)
